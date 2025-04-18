@@ -145,9 +145,16 @@ export type StoredConfig = {
     saveHistory?: boolean;
     sensitivePatterns?: Array<string>;
   };
+<<<<<<< HEAD
   /** User-defined safe commands */
   safeCommands?: Array<string>;
   reasoningEffort?: ReasoningEffort;
+=======
+  /**
+   * Configuration for Model Context Protocol servers.
+   */
+  mcpServers?: Record<string, { url: string }>;
+>>>>>>> 1136135 (Add basic MCP support)
 };
 
 // Minimal config written on first run.  An *empty* model string ensures that
@@ -186,6 +193,10 @@ export type AppConfig = {
     saveHistory: boolean;
     sensitivePatterns: Array<string>;
   };
+  /**
+   * Optional mapping of named MCP servers loaded from config file.
+   */
+  mcpServers?: Record<string, { url: string }>;
 };
 
 // Formatting (quiet mode-only).
@@ -391,6 +402,11 @@ export const loadConfig = (
     disableResponseStorage: storedConfig.disableResponseStorage === true,
     reasoningEffort: storedConfig.reasoningEffort,
   };
+
+  // Include MCP server definitions from stored config, if any
+  if (storedConfig.mcpServers) {
+    config.mcpServers = storedConfig.mcpServers;
+  }
 
   // -----------------------------------------------------------------------
   // First‑run bootstrap: if the configuration file (and/or its containing

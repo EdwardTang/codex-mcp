@@ -31,6 +31,7 @@ import {
 import { handleExecCommand } from "./handle-exec-command.js";
 import { randomUUID } from "node:crypto";
 import OpenAI, { APIConnectionTimeoutError } from "openai";
+import { getMcpToolDefinitions, handleMcpFunctionCall } from "./mcp.js";
 
 // Wait time before retrying after rate limit errors (ms).
 const RATE_LIMIT_RETRY_WAIT_MS = parseInt(
@@ -371,6 +372,11 @@ export class AgentLoop {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const callId: string = (item as any).call_id ?? (item as any).id;
 
+    // If function name matches a configured MCP server, route the call
+    if (this.config?.mcpServers && name && name in this.config.mcpServers) {
+      return handleMcpFunctionCall(this.config.mcpServers, name, rawArguments, callId);
+    }
+
     const args = parseToolCallArguments(rawArguments ?? "{}");
     log(
       `handleFunctionCall(): name=${
@@ -658,7 +664,7 @@ export class AgentLoop {
         // prompts) and so that freshly generated `function_call_output`s are
         // shown immediately.
         // Figure out what subset of `turnInput` constitutes *new* information
-        // for the UI so that we don’t spam the interface with repeats of the
+        // for the UI so that we don't spam the interface with repeats of the
         // entire transcript on every iteration when response storage is
         // disabled.
         const deltaInput = this.disableResponseStorage
@@ -684,6 +690,11 @@ export class AgentLoop {
             const mergedInstructions = [prefix, this.instructions]
               .filter(Boolean)
               .join("\n");
+
+            // Prepare tool definitions: always include shell, plus one per MCP server
+            const toolsList: Array<FunctionTool | any> = [shellTool]; // Start with shellTool
+            // Include MCP function definitions, if any
+            toolsList.push(...getMcpToolDefinitions(this.config?.mcpServers));
 
             const responseCall =
               !this.config.provider ||
@@ -714,9 +725,9 @@ export class AgentLoop {
                     store: true,
                     previous_response_id: lastResponseId || undefined,
                   }),
-              tools: [shellTool],
+              tools: toolsList, // Use the combined toolsList
               // Explicitly tell the model it is allowed to pick whatever
-              // tool it deems appropriate.  Omitting this sometimes leads to
+              // tool it deems appropriate. Omitting this sometimes leads to
               // the model ignoring the available tools and responding with
               // plain text instead (resulting in a missing tool‑call).
               tool_choice: "auto",
