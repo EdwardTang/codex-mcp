@@ -1,7 +1,8 @@
-import type {ResponseInputItem} from "openai/resources/responses/responses.mjs";
-import {Client} from "@modelcontextprotocol/sdk/client/index.js";
-import {SSEClientTransport} from "@modelcontextprotocol/sdk/client/sse.js";
-import {ORIGIN, CLI_VERSION} from "../session.js";
+import type { ResponseInputItem } from "openai/resources/responses/responses";
+
+import { ORIGIN, CLI_VERSION } from "../session.js";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 
 const mcpClients: Record<string, Client> = {};
 
@@ -9,9 +10,11 @@ const mcpClients: Record<string, Client> = {};
  * Generate OpenAI function definitions for each configured MCP server.
  */
 export function getMcpToolDefinitions(
-  servers?: Record<string, { url: string }>
-): any[] {
-  if (!servers) return [];
+  servers?: Record<string, { url: string }>,
+): Array<Record<string, unknown>> {
+  if (!servers) {
+    return [];
+  }
   return Object.entries(servers).map(([serverName]) => ({
     type: "function",
     name: serverName,
@@ -20,8 +23,8 @@ export function getMcpToolDefinitions(
     parameters: {
       type: "object",
       properties: {
-        name: {type: "string", description: "Tool name"},
-        args: {type: "object", description: "Tool args"},
+        name: { type: "string", description: "Tool name" },
+        args: { type: "object", description: "Tool args" },
       },
       required: ["name", "args"],
       additionalProperties: false,
@@ -37,45 +40,48 @@ export async function handleMcpFunctionCall(
   servers: Record<string, { url: string }>,
   serverName: string,
   rawArguments: string | undefined,
-  callId: string
-): Promise<ResponseInputItem.FunctionCallOutput[]> {
+  callId: string,
+): Promise<Array<ResponseInputItem.FunctionCallOutput>> {
   const paramsRaw = rawArguments ?? "{}";
 
   const formatRaw = (raw: string) => [
-    {type: "function_call_output" as const, call_id: callId, output: raw},
+    { type: "function_call_output" as const, call_id: callId, output: raw },
   ];
 
   const formatOutput = (
     output: string,
     exit_code: number,
-    duration_seconds: number
+    duration_seconds: number,
   ) => ({
     type: "function_call_output" as const,
     call_id: callId,
-    output: JSON.stringify({output, metadata: {exit_code, duration_seconds}}),
+    output: JSON.stringify({
+      output,
+      metadata: { exit_code, duration_seconds },
+    }),
   });
 
   if (!servers[serverName]) {
     return formatRaw(paramsRaw);
   }
 
-  let parsed: any;
+  let parsed: Record<string, unknown>;
   try {
-    parsed = JSON.parse(paramsRaw);
+    parsed = JSON.parse(paramsRaw) as Record<string, unknown>;
   } catch {
     return formatRaw(paramsRaw);
   }
 
-  const {name: toolName, args, ...other} = parsed;
-  if (typeof toolName !== "string") return formatRaw(paramsRaw);
+  const { name: toolName, args, ...other } = parsed;
+  if (typeof toolName !== "string") {
+    return formatRaw(paramsRaw);
+  }
 
   const callArgs = args ?? other;
 
   if (!mcpClients[serverName]) {
-    const client = new Client({name: ORIGIN, version: CLI_VERSION});
-    const transport = new SSEClientTransport(
-      new URL(servers[serverName].url)
-    );
+    const client = new Client({ name: ORIGIN, version: CLI_VERSION });
+    const transport = new SSEClientTransport(new URL(servers[serverName].url));
     await client.connect(transport);
     mcpClients[serverName] = client;
   }
@@ -89,11 +95,15 @@ export async function handleMcpFunctionCall(
       name: toolName,
       arguments: callArgs,
     });
-    const outputText = Array.isArray((response as any).content)
-      ? (response as any).content.map((c: any) => c.text).join("\n")
+    const outputText = Array.isArray(
+      (response as { content?: Array<{ text: string }> }).content,
+    )
+      ? (response as { content?: Array<{ text: string }> })
+          .content!.map((c) => c.text)
+          .join("\n")
       : JSON.stringify(response);
     return [formatOutput(outputText, 0, getDuration())];
-  } catch (err: any) {
+  } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return [formatOutput(`MCP error: ${msg}`, 1, getDuration())];
   }

@@ -145,16 +145,13 @@ export type StoredConfig = {
     saveHistory?: boolean;
     sensitivePatterns?: Array<string>;
   };
-<<<<<<< HEAD
   /** User-defined safe commands */
   safeCommands?: Array<string>;
   reasoningEffort?: ReasoningEffort;
-=======
   /**
    * Configuration for Model Context Protocol servers.
    */
   mcpServers?: Record<string, { url: string }>;
->>>>>>> 1136135 (Add basic MCP support)
 };
 
 // Minimal config written on first run.  An *empty* model string ensures that

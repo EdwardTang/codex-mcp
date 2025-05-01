@@ -8,8 +8,8 @@ import type {
   ResponseItem,
   ResponseCreateParams,
   FunctionTool,
-} from "openai/resources/responses/responses.mjs";
-import type { Reasoning } from "openai/resources.mjs";
+} from "openai/resources/responses/responses";
+import type { Reasoning } from "openai/resources/shared";
 
 import {
   OPENAI_TIMEOUT_MS,
@@ -29,9 +29,9 @@ import {
   setSessionId,
 } from "../session.js";
 import { handleExecCommand } from "./handle-exec-command.js";
+import { getMcpToolDefinitions, handleMcpFunctionCall } from "./mcp.js";
 import { randomUUID } from "node:crypto";
 import OpenAI, { APIConnectionTimeoutError } from "openai";
-import { getMcpToolDefinitions, handleMcpFunctionCall } from "./mcp.js";
 
 // Wait time before retrying after rate limit errors (ms).
 const RATE_LIMIT_RETRY_WAIT_MS = parseInt(
@@ -374,7 +374,12 @@ export class AgentLoop {
 
     // If function name matches a configured MCP server, route the call
     if (this.config?.mcpServers && name && name in this.config.mcpServers) {
-      return handleMcpFunctionCall(this.config.mcpServers, name, rawArguments, callId);
+      return handleMcpFunctionCall(
+        this.config.mcpServers,
+        name,
+        rawArguments,
+        callId,
+      );
     }
 
     const args = parseToolCallArguments(rawArguments ?? "{}");
@@ -692,7 +697,9 @@ export class AgentLoop {
               .join("\n");
 
             // Prepare tool definitions: always include shell, plus one per MCP server
-            const toolsList: Array<FunctionTool | any> = [shellTool]; // Start with shellTool
+            const toolsList: Array<FunctionTool | Record<string, unknown>> = [
+              shellTool,
+            ]; // Start with shellTool
             // Include MCP function definitions, if any
             toolsList.push(...getMcpToolDefinitions(this.config?.mcpServers));
 
