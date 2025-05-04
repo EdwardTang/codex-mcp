@@ -14,6 +14,7 @@ import type { ReasoningEffort } from "openai/resources.mjs";
 
 import App from "./app";
 import { runSinglePass } from "./cli-singlepass";
+import { runPlannerMode } from "./cli-plan";
 import { AgentLoop } from "./utils/agent/agent-loop";
 import { ReviewDecision } from "./utils/agent/review";
 import { AutoApprovalMode } from "./utils/auto-approval-mode";
@@ -51,6 +52,7 @@ const cli = meow(
   Usage
     $ codex [options] <prompt>
     $ codex completion <bash|zsh|fish>
+    $ codex plan --request <file> [options]
 
   Options
     --version                       Print version and exit
@@ -79,6 +81,10 @@ const cli = meow(
     --flex-mode               Use "flex-mode" processing mode for the request (only supported
                               with models o3 and o4-mini)
 
+  planner mode options
+    --request <file>           Path to the Template A plan request file
+    --strict                   Exit with error code if response doesn't match Template A format
+
   Dangerous options
     --dangerously-auto-approve-everything
                                Skip all confirmation prompts and execute commands without
@@ -92,6 +98,7 @@ const cli = meow(
   Examples
     $ codex "Write and run a python program that prints ASCII art"
     $ codex -q "fix build issues"
+    $ codex plan --request .scratchpad_logs/2023-01-01T12_34_56_plan_request.md
     $ codex completion bash
 `,
   {
@@ -187,6 +194,16 @@ const cli = meow(
         description: `Run in full-context editing approach. The model is given the whole code
           directory as context and performs changes in one go without acting.`,
       },
+
+      // Planner mode options
+      request: {
+        type: "string",
+        description: "Path to the Template A plan request file",
+      },
+      strict: {
+        type: "boolean",
+        description: "Exit with error code if response doesn't match Template A format",
+      },
     },
   },
 );
@@ -224,6 +241,108 @@ complete -c codex -a '(__fish_complete_path)' -d 'file path'`,
   }
   // eslint-disable-next-line no-console
   console.log(script);
+  process.exit(0);
+}
+
+// Handle 'plan' subcommand 
+if (cli.input[0] === "plan" || cli.flags.request) {
+  const requestFile = cli.flags.request;
+  
+  if (!requestFile) {
+    // eslint-disable-next-line no-console
+    console.error(chalk.red("Error: The 'plan' command requires a --request <file> argument"));
+    process.exit(1);
+  }
+  
+  // Check if request file exists
+  if (!fs.existsSync(requestFile)) {
+    // eslint-disable-next-line no-console
+    console.error(chalk.red(`Error: Request file not found: ${requestFile}`));
+    process.exit(1);
+  }
+
+  // Load config
+  let config = loadConfig(undefined, undefined, {
+    cwd: process.cwd(),
+    disableProjectDoc: Boolean(cli.flags.noProjectDoc),
+    projectDocPath: cli.flags.projectDoc,
+  });
+
+  const model = cli.flags.model ?? config.model;
+  const provider = cli.flags.provider ?? config.provider ?? "openai";
+  const apiKey = getApiKey(provider);
+  const strict = Boolean(cli.flags.strict);
+  
+  // Skip API key validation for providers that don't require an API key
+  const NO_API_KEY_REQUIRED = new Set(["ollama"]);
+  
+  if (!apiKey && !NO_API_KEY_REQUIRED.has(provider.toLowerCase())) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `\n${chalk.red(`Missing ${provider} API key.`)}\n\n` +
+        `Set the environment variable ${chalk.bold(
+          `${provider.toUpperCase()}_API_KEY`,
+        )} ` +
+        `and re-run this command.\n` +
+        `${
+          provider.toLowerCase() === "openai"
+            ? `You can create a key here: ${chalk.bold(
+                chalk.underline("https://platform.openai.com/account/api-keys"),
+              )}\n`
+            : provider.toLowerCase() === "gemini"
+              ? `You can create a ${chalk.bold(
+                  `${provider.toUpperCase()}_API_KEY`,
+                )} ` + `in the ${chalk.bold(`Google AI Studio`)}.\n`
+              : `You can create a ${chalk.bold(
+                  `${provider.toUpperCase()}_API_KEY`,
+                )} ` + `in the ${chalk.bold(`${provider}`)} dashboard.\n`
+        }`,
+    );
+    process.exit(1);
+  }
+
+  // For --flex-mode, validate and exit if incorrect.
+  if (cli.flags.flexMode) {
+    const allowedFlexModels = new Set(["o3", "o4-mini"]);
+    if (!allowedFlexModels.has(model)) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `The --flex-mode option is only supported when using the 'o3' or 'o4-mini' models. ` +
+          `Current model: '${model}'.`,
+      );
+      process.exit(1);
+    }
+  }
+  
+  const flagPresent = Object.hasOwn(cli.flags, "disableResponseStorage");
+  
+  const disableResponseStorage = flagPresent
+    ? Boolean(cli.flags.disableResponseStorage) 
+    : (config.disableResponseStorage ?? false);
+    
+  config = {
+    apiKey,
+    ...config,
+    model: model ?? config.model,
+    reasoning: cli.flags.reasoning as ReasoningEffort,
+    flexMode: Boolean(cli.flags.flexMode),
+    provider,
+    disableResponseStorage,
+  };
+
+  // Run the planner mode
+  await runPlannerMode({
+    requestFile,
+    projectDoc: cli.flags.projectDoc,
+    strict,
+    model: config.model,
+    provider: config.provider,
+    apiKey: config.apiKey,
+    disableResponseStorage: config.disableResponseStorage,
+    reasoningEffort: config.reasoning as 'low' | 'medium' | 'high',
+  });
+  
+  // Exit after running the planner
   process.exit(0);
 }
 
