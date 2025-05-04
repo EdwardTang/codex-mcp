@@ -732,7 +732,7 @@ export class AgentLoop {
                     store: true,
                     previous_response_id: lastResponseId || undefined,
                   }),
-              tools: toolsList, // Use the combined toolsList
+              tools: toolsList as Tool[], // 使用类型断言以满足Tool[]的类型要求
               // Explicitly tell the model it is allowed to pick whatever
               // tool it deems appropriate. Omitting this sometimes leads to
               // the model ignoring the available tools and responding with

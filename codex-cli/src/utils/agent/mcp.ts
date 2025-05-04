@@ -28,7 +28,7 @@ export function getMcpToolDefinitions(
       type: "object",
       // We don't know the specific properties required by the remote tool,
       // so we allow any properties. Consider adding specific schemas if known.
-      properties: {},
+      properties: {} as Record<string, unknown>,
       // Mark additionalProperties as true or omit it to allow any properties.
       // If the specific MCP tool has a strict schema, validation might happen server-side.
     },
