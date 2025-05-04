@@ -77,3 +77,11 @@ yarn.lock
 package.json-e
 session.ts-e
 CHANGELOG.ignore.md
+# SpecStory explanation file
+.specstory/.what-is-this.md
+
+# Cursor multi-agent scratch & checkpoints
+.cursor/checkpoints/
+.scratchpad_logs/
+*_plan_request.md
+*_plan_response.md

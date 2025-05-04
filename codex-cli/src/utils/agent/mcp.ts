@@ -80,8 +80,34 @@ export async function handleMcpFunctionCall(
   const callArgs = args ?? other;
 
   if (!mcpClients[serverName]) {
+    const cfg = servers[serverName];
+
+    // Validate the configured URL before attempting to create the transport.
+    if (typeof cfg?.url !== "string" || cfg.url.trim() === "") {
+      return [
+        formatOutput(
+          `MCP error: Missing 'url' for server '${serverName}' in configuration`,
+          1,
+          0,
+        ),
+      ];
+    }
+
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(cfg.url);
+    } catch {
+      return [
+        formatOutput(
+          `MCP error: Invalid URL for server '${serverName}': ${cfg.url}`,
+          1,
+          0,
+        ),
+      ];
+    }
+
     const client = new Client({ name: ORIGIN, version: CLI_VERSION });
-    const transport = new SSEClientTransport(new URL(servers[serverName].url));
+    const transport = new SSEClientTransport(parsedUrl);
     await client.connect(transport);
     mcpClients[serverName] = client;
   }

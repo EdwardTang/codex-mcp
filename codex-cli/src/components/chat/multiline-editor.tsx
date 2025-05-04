@@ -162,6 +162,14 @@ export interface MultilineTextEditorHandle {
   moveCursorToEnd(): void;
 }
 
+// 添加纯函数insertAt用于处理文本插入
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function insertAt(text: string, index: number, insertion: string): { newValue: string, newCaret: number } {
+  const newValue = text.slice(0, index) + insertion + text.slice(index);
+  const newCaret = index + insertion.length;
+  return { newValue, newCaret };
+}
+
 const MultilineTextEditorInner = (
   {
     initialText = "",
@@ -182,6 +190,8 @@ const MultilineTextEditorInner = (
 
   const buffer = useRef(new TextBuffer(initialText, initialCursorOffset));
   const [version, setVersion] = useState(0);
+  // 使用ref来存储submitHandled状态
+  const submitHandledRef = useRef(false);
 
   // Keep track of the current terminal size so that the editor grows/shrinks
   // with the window.  `useTerminalSize` already subtracts a small horizontal
@@ -211,81 +221,124 @@ const MultilineTextEditorInner = (
         console.log("[MultilineTextEditor] event", { input, key });
       }
 
-      // 1a) CSI-u / modifyOtherKeys *mode 2* (Ink strips initial ESC, so we
-      //     start with '[') – format: "[<code>;<modifiers>u".
+      // Case 1: Check raw characters first (highest priority for test compatibility)
+      if (input === "\r") {
+        // Plain Enter – submit (works on all basic terminals and tests)
+        if (onSubmit && !submitHandledRef.current) {
+          submitHandledRef.current = true;
+          onSubmit(buffer.current.getText());
+          // Reset submitHandled after a short delay
+          setTimeout(() => {
+            submitHandledRef.current = false;
+          }, 50);
+          return;
+        }
+        return; // 即使被处理过，也阻止其继续传递
+      }
+      
+      // Case 2: Check key.return (standard way)
+      if (key.return) {
+        if (key.ctrl) {
+          // Ctrl+Enter submits
+          if (onSubmit && !submitHandledRef.current) {
+            submitHandledRef.current = true;
+            onSubmit(buffer.current.getText());
+            // Reset submitHandled after a short delay
+            setTimeout(() => {
+              submitHandledRef.current = false;
+            }, 50);
+            return;
+          }
+        } else if (!key.shift && !key.meta) {
+          // Plain Enter submits (no Shift, Ctrl, Meta)
+          if (onSubmit && !submitHandledRef.current) {
+            submitHandledRef.current = true;
+            onSubmit(buffer.current.getText());
+            // Reset submitHandled after a short delay
+            setTimeout(() => {
+              submitHandledRef.current = false;
+            }, 50);
+            return;
+          }
+        } else {
+          // Shift+Enter or other Enter combinations insert newline
+          buffer.current.newline();
+          setVersion((v) => v + 1);
+          if (onChange) {
+            onChange(buffer.current.getText());
+          }
+          return;
+        }
+      }
+      
+      // Case 3: Check CSI sequences for Ctrl+Enter (for test compatibility)
+      // CSI-u / modifyOtherKeys mode 2 format: "[<code>;<modifiers>u"
       if (input.startsWith("[") && input.endsWith("u")) {
         const m = input.match(/^\[([0-9]+);([0-9]+)u$/);
         if (m && m[1] === "13") {
           const mod = Number(m[2]);
-          // In xterm's encoding: bit-1 (value 2) is Shift. Everything >1 that
-          // isn't exactly 1 means some modifier was held. We treat *shift or
-          // alt present* (2,3,4,6,8,9) as newline; Ctrl (bit-2 / value 4)
-          // triggers submit.  See xterm/DEC modifyOtherKeys docs.
-
           const hasCtrl = Math.floor(mod / 4) % 2 === 1;
+          
           if (hasCtrl) {
-            if (onSubmit) {
+            if (onSubmit && !submitHandledRef.current) {
+              submitHandledRef.current = true;
               onSubmit(buffer.current.getText());
+              // Reset submitHandled after a short delay
+              setTimeout(() => {
+                submitHandledRef.current = false;
+              }, 50);
+              return;
             }
           } else {
             buffer.current.newline();
+            setVersion((v) => v + 1);
+            if (onChange) {
+              onChange(buffer.current.getText());
+            }
+            return;
           }
-          setVersion((v) => v + 1);
-          return;
         }
       }
-
-      // 1b) CSI-~ / modifyOtherKeys *mode 1* – format: "[27;<mod>;<code>~".
-      //     Terminals such as iTerm2 (default), older xterm versions, or when
-      //     modifyOtherKeys=1 is configured, emit this legacy sequence.  We
-      //     translate it to the same behaviour as the mode‑2 variant above so
-      //     that Shift+Enter (newline) / Ctrl+Enter (submit) work regardless
-      //     of the user’s terminal settings.
+      
+      // CSI-~ / modifyOtherKeys mode 1 format: "[27;<mod>;<code>~"
       if (input.startsWith("[27;") && input.endsWith("~")) {
         const m = input.match(/^\[27;([0-9]+);13~$/);
         if (m) {
           const mod = Number(m[1]);
           const hasCtrl = Math.floor(mod / 4) % 2 === 1;
-
+          
           if (hasCtrl) {
-            if (onSubmit) {
+            if (onSubmit && !submitHandledRef.current) {
+              submitHandledRef.current = true;
               onSubmit(buffer.current.getText());
+              // Reset submitHandled after a short delay
+              setTimeout(() => {
+                submitHandledRef.current = false;
+              }, 50);
+              return;
             }
           } else {
             buffer.current.newline();
+            setVersion((v) => v + 1);
+            if (onChange) {
+              onChange(buffer.current.getText());
+            }
+            return;
           }
-          setVersion((v) => v + 1);
-          return;
         }
       }
-
-      // 2) Single‑byte control chars ------------------------------------------------
+      
       if (input === "\n") {
-        // Ctrl+J or pasted newline → insert newline.
+        // Newline - either Ctrl+J or pasted newline → insert newline
         buffer.current.newline();
         setVersion((v) => v + 1);
-        return;
-      }
-
-      if (input === "\r") {
-        // Plain Enter – submit (works on all basic terminals).
-        if (onSubmit) {
-          onSubmit(buffer.current.getText());
+        if (onChange) {
+          onChange(buffer.current.getText());
         }
         return;
       }
 
-      // Let <Esc> fall through so the parent handler (if any) can act on it.
-
       // Delegate remaining keys to our pure TextBuffer
-      if (
-        process.env["TEXTBUFFER_DEBUG"] === "1" ||
-        process.env["TEXTBUFFER_DEBUG"] === "true"
-      ) {
-        // eslint-disable-next-line no-console
-        console.log("[MultilineTextEditor] key event", { input, key });
-      }
-
       const modified = buffer.current.handleInput(
         input,
         key as Record<string, boolean>,
